@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  CommonTagNameOne:
+    Type: String
+  CommonTagValueOne:
+    Type: String
+  S3BucketName:
+    Type: String
+  S3BucketAccessRoleName:
+    Type: String
+
+Resources:
+  S3:
+    DeletionPolicy: Retain
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      BucketName: !Ref S3BucketName
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+  S3BucketAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+      Path: '/'
+      RoleName: !Ref S3BucketAccessRoleName
+  S3BucketAccessRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${S3BucketAccessRoleName}-policy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Action: 's3:*'
+          Effect: Allow
+          Resource: '*'
+      Roles:
+        - !Ref S3BucketAccessRole
+  S3BucketAccessRoleInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: '/'
+      Roles:
+        - !Ref S3BucketAccessRole
+Outputs:
+  S3BucketName:
+    Value: !Ref S3BucketName
+  S3BucketAccessRoleARN:
+    Value: !GetAtt S3BucketAccessRole.Arn

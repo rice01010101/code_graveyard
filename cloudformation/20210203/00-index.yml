@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+# deployment order, 1.certificate, 2.cdn, 3.network, 4.dns, 5.database, 6.storage, 7.webapp
+Parameters:
+  # Cdn, Certificate, Dns parameters
+  BlogDomainHostedZoneId:
+    Type: String
+    Default: REPLACE_YOUR_HOSTZONE_ID
+  DistributionDomainName:
+    Type: String
+    Default: REPLACE_YOUR_DIST_DOMAINNAME
+  OriginDomainName:
+    Type: String
+    Default: REPLACE_YOUR_ORG_DOMAINNAME
+  RootDomainName:
+    Type: String
+    Default: REPLACE_YOUR_ROOT_DOMAINNAME
+  # Common parameters
+  CommonTagNameOne:
+    Type: String
+    Default: REPLACE_YOUR_KEY
+  CommonTagValueOne:
+    Type: String
+    Default: REPLACE_YOUR_VALUE
+  # Database parameters
+  DBClusterIdentifier:
+    Type: String
+    Default: REPLACE_YOUR_DBID
+  DBMasterUsername:
+    Type: String
+    Default: REPLACE_YOUR_M_USERNAME
+    NoEcho: true
+  DBMasterPassword:
+    Type: String
+    Default: REPLACE_YOUR_M_PASSWORD
+    NoEcho: true
+  # Storage Parameters
+  S3BucketName:
+    Type: String
+    Default: REPLACE_YOUR_S3BUCKETNAME
+  S3BucketAccessRoleName:
+    Type: String
+    Default: REPLACE_YOUR_S3BUCKET_IAMROLENAME
+  # Network parameters
+  VPCCidrBlock:
+    Type: String
+    Default: REPLACE_YOUR_VPCCIDR
+
+Resources:
+  Certificate:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        BlogDomainHostedZoneId: !Ref BlogDomainHostedZoneId
+        CommonTagNameOne: !Ref CommonTagNameOne
+        CommonTagValueOne: !Ref CommonTagValueOne
+        DistributionDomainName: !Ref DistributionDomainName
+        RootDomainName: !Ref RootDomainName
+      TemplateURL: ./01-certificate.yml
+  Dns:
+    DependsOn: Network
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        BlogDomainHostedZoneId: !Ref BlogDomainHostedZoneId
+        CommonTagNameOne: !Ref CommonTagNameOne
+        CommonTagValueOne: !Ref CommonTagValueOne
+        CloudfrontDomainName: !GetAtt Cdn.Outputs.oCloudfrontDomainName
+        DistributionDomainName: !Ref DistributionDomainName
+        OriginDomainName: !Ref OriginDomainName
+        WebappEIP: !GetAtt Network.Outputs.oEIP
+      TemplateURL: 04-dns.yml
+  Cdn:
+    DependsOn: Certificate
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        CertificateArn: !GetAtt Certificate.Outputs.oCertificateArn
+        CommonTagNameOne: !Ref CommonTagNameOne
+        CommonTagValueOne: !Ref CommonTagValueOne
+        DistributionDomainName: !Ref DistributionDomainName
+        OriginDomainName: !Ref OriginDomainName
+      TemplateURL: ./02-cdn.yml
+  Network:
+    DependsOn: Cdn
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        CommonTagNameOne: !Ref CommonTagNameOne
+        CommonTagValueOne: !Ref CommonTagValueOne
+        VPCCidrBlock: !Ref VPCCidrBlock
+      TemplateURL: ./03-network.yml
+  Database:
+    DependsOn: Network
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        CommonTagNameOne: !Ref CommonTagNameOne
+        CommonTagValueOne: !Ref CommonTagValueOne
+        DBClusterIdentifier: !Ref DBClusterIdentifier
+        DBMasterUsername: !Ref DBMasterUsername
+        DBMasterPassword: !Ref DBMasterPassword
+        PrivateSubnetOne: !GetAtt Network.Outputs.oPrivateSubnetOne
+        PrivateSubnetTwo: !GetAtt Network.Outputs.oPrivateSubnetTwo
+        RDSSecurityGroupID: !GetAtt Network.Outputs.oRDSSecurityGroupID
+      TemplateURL: ./05-database.yml
+  Storage:
+    DependsOn: Database
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        CommonTagNameOne: !Ref CommonTagNameOne
+        CommonTagValueOne: !Ref CommonTagValueOne
+        S3BucketName: !Ref S3BucketName
+        S3BucketAccessRoleName: !Ref S3BucketAccessRoleName
+      TemplateURL: ./06-storage.yml

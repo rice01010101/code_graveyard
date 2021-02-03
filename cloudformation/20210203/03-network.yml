@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  VPCCidrBlock:
+    Type: String
+  CommonTagNameOne:
+    Type: String
+  CommonTagValueOne:
+    Type: String
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCidrBlock
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+  # public
+  PublicRouteTable:
+    DependsOn: VPCGatewayAttachment
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+  PublicRoute:
+    DependsOn: VPCGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnet:
+    DependsOn: VPCGatewayAttachment
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      # x.x.0.0/24
+      CidrBlock: !Select [ 0, !Cidr [ !GetAtt VPC.CidrBlock, 1, 8]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+      VpcId: !Ref VPC
+  PublicSunetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+  # private
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+      VpcId: !Ref VPC
+  PrivateSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      # x.x.1.0/24
+      CidrBlock: !Select [ 1, !Cidr [ !GetAtt VPC.CidrBlock, 2, 8]]
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+      VpcId: !Ref VPC
+  PrivateSunetRouteTableAssociationOne:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetOne
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      # x.x.2.0/24
+      CidrBlock: !Select [ 2, !Cidr [ !GetAtt VPC.CidrBlock, 3, 8]]
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+      VpcId: !Ref VPC
+  PrivateSunetRouteTableAssociationTwo:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetTwo
+      RouteTableId: !Ref PrivateRouteTable
+  # EIP
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+  # SecurityGroup
+  ECSSecurityGroup:
+    DependsOn: VPC
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allow 443 80 any
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+      VpcId: !Ref VPC
+  RDSSecurityGroup:
+    DependsOn: ECSSecurityGroup
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allow ecs cluster
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+      VpcId: !Ref VPC
+      
+Outputs:
+  oEIP:
+    Value: !Ref EIP
+  oECSSecurityGroupID:
+    Value: !Ref ECSSecurityGroup
+  oPrivateSubnetOne:
+    Value: !Ref PrivateSubnetOne
+  oPrivateSubnetTwo:
+    Value: !Ref PrivateSubnetTwo
+  oRDSSecurityGroupID:
+    Value: !Ref RDSSecurityGroup

@@ -1,0 +1,30 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  BlogDomainHostedZoneId:
+    Type: String
+  DistributionDomainName:
+    Type: String
+  CommonTagNameOne:
+    Type: String
+  CommonTagValueOne:
+    Type: String
+  RootDomainName:
+    Type: String
+
+Resources:
+  CertificateForCloudfront:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DistributionDomainName
+      DomainValidationOptions:
+        - DomainName: !Ref DistributionDomainName
+          HostedZoneId: !Ref BlogDomainHostedZoneId
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+      ValidationMethod: DNS
+      
+Outputs:
+  oCertificateArn:
+    Value: !Ref CertificateForCloudfront

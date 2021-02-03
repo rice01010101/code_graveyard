@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  CommonTagNameOne:
+    Type: String
+  CommonTagValueOne:
+    Type: String
+  DBClusterIdentifier:
+    Type: String
+  DBMasterUsername:
+    Type: String
+    NoEcho: true
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+  PrivateSubnetOne:
+    Type: String
+  PrivateSubnetTwo:
+    Type: String
+  RDSSecurityGroupID:
+    Type: String
+
+Resources:
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: for aurora serverless
+      SubnetIds:
+        - !Ref PrivateSubnetOne
+        - !Ref PrivateSubnetTwo
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+  RDSParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: for aurora56
+      Family: aurora5.6
+      Parameters:
+        character_set_client: utf8mb4
+        character_set_connection: utf8mb4
+        character_set_database: utf8mb4
+        character_set_filesystem: utf8mb4
+        character_set_results: utf8mb4
+        character_set_server: utf8mb4
+        time_zone: Asia/Tokyo
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+  RDS:
+    DeletionPolicy: Snapshot
+    Type: AWS::RDS::DBCluster
+    Properties:
+      BackupRetentionPeriod: 3
+      DBClusterIdentifier: !Ref DBClusterIdentifier
+      DBClusterParameterGroupName: !Ref RDSParameterGroup
+      DatabaseName: concrete5
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      Engine: aurora
+      EngineMode: serverless
+      EngineVersion: 5.6.10a
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBMasterPassword
+      Port: 3306
+      StorageEncrypted: true
+      ScalingConfiguration:
+        AutoPause: true
+        MaxCapacity: 2
+        MinCapacity: 1
+        SecondsUntilAutoPause: 3600
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+      VpcSecurityGroupIds:
+        - !Ref RDSSecurityGroupID
+        
+Outputs:
+  oDBClusterIdentifier:
+    Value: !Ref DBClusterIdentifier
+  oDBMasterUsername:
+    Value: !Ref DBMasterUsername
+  oDBMasterPassword:
+    Value: !Ref DBMasterPassword

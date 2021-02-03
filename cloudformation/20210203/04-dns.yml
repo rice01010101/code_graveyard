@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  BlogDomainHostedZoneId:
+    Type: String
+  CommonTagNameOne:
+    Type: String
+  CommonTagValueOne:
+    Type: String
+  CloudfrontDomainName:
+    Type: String
+  DistributionDomainName:
+    Type: String
+  OriginDomainName:
+    Type: String
+  WebappEIP:
+    Type: String
+
+Resources:
+  Route53RecordSetGroup:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref BlogDomainHostedZoneId
+      RecordSets:
+        - AliasTarget:
+            HostedZoneId: REPLACE_YOUR_HOSTZONEID
+            DNSName: !Ref CloudfrontDomainName
+          Name: !Ref DistributionDomainName
+          Type: A
+        - AliasTarget:
+            HostedZoneId: REPLACE_YOUR_HOSTZONEID
+            DNSName: !Ref CloudfrontDomainName
+          Name: !Ref DistributionDomainName
+          Type: AAAA
+        - Name: !Ref OriginDomainName
+          ResourceRecords:
+            - !Ref WebappEIP
+          TTL: 3600
+          Type: A

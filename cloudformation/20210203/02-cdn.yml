@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  CertificateArn:
+    Type: String
+  CommonTagNameOne:
+    Type: String
+  CommonTagValueOne:
+    Type: String
+  DistributionDomainName:
+    Type: String
+  OriginDomainName:
+    Type: String
+
+Resources:
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref DistributionDomainName
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          Compress: true
+          DefaultTTL: 3600
+          ForwardedValues:
+            Cookies:
+              Forward: all
+            Headers:
+              - Accept
+              - Authorization
+              - CloudFront-Forwarded-proto
+              - Origin
+              - Referer
+            QueryString: true
+          MaxTTL: 3600
+          MinTTL: 3600
+          TargetOriginId: prodblogriceincom
+          ViewerProtocolPolicy: redirect-to-https
+        Enabled: true
+        IPV6Enabled: true
+        Origins:
+          - CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+            DomainName: !Ref OriginDomainName
+            Id: prodblogriceincom
+            OriginCustomHeaders:
+              - HeaderName: X-restrict-header
+                HeaderValue: allowaccessonlythisdistribution
+        PriceClass: PriceClass_200
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          MinimumProtocolVersion: TLSv1.2_2019
+          SslSupportMethod: sni-only
+      Tags:
+        - Key: !Ref CommonTagNameOne
+          Value: !Ref CommonTagValueOne
+
+Outputs:
+  oCloudfrontDomainName:
+    Value: !GetAtt CloudFrontDistribution.DomainName
