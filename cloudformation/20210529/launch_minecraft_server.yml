@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+  YourCidr:
+    Type: String
+  AmiId:
+    Type: String
+
+
+Resources:
+  # EIP:
+  #   DependsOn:
+  #     - EC2
+  #   Type: 'AWS::EC2::EIP'
+  #   Properties:
+  #     InstanceId: !Ref EC2
+  VPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: 10.10.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+  IGW:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties: {}
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC
+  SecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'minecraft'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref YourCidr
+        - IpProtocol: tcp
+          FromPort: 25565
+          ToPort: 25565
+          CidrIp: !Ref YourCidr
+  PublicSubnetOne:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.10.0.0/24
+      AvailabilityZone: !Select 
+        - 0
+        - 'Fn::GetAZs': !Ref 'AWS::Region'
+  SubnetRouteTableAssociationOne:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetOne
+  VPCGatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+  PublicRoute:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+
+  # マイクラサーバ
+  EC2:
+    DependsOn:
+      - PublicSubnetOne
+    Type: 'AWS::EC2::Instance'
+    Properties: 
+      ImageId: !Ref AmiId
+      InstanceType: t3.small
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref SecurityGroup
+          SubnetId: !Ref PublicSubnetOne
