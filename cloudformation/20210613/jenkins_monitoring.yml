@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Metadata:
+  Generator: "former2"
+
+Description: >
+  事前準備：
+    1. SlackワークスペースをChatbotマネジメントコンソールで手動認証
+    2. 対象slackチャンネルで /invite @aws コマンドを実行しbotを招待
+    3. 対象jenkinsインスタンスのタグにMonitoringTarget : jenkinsをセット
+  事後確認
+    1. sns topicのemail認証
+    2. インスタンスのsecurity groupでインバウンド許可を削除し504タイムアウトを意図的に発生させCloudwatchAlarmをトリガー（トリガー後、security groupは戻す）
+    3. メール受信確認
+    4. slack受信確認
+    5. インスタンス再起動確認（sudo last reboot）
+  TIPS
+    ・aws cliからcloudwatch alarmをトリガーするコマンド
+      aws cloudwatch set-alarm-state --alarm-name jenkins-monitoring-alarm --state-value ALARM --state-reason "test" --region REPLACE_AWS_REGION
+    ・マネジメントコンソールからcfnスタックを作成するとSlackChannelNameが文字化けするので再入力
+
+Parameters:
+  ########## Cloudwatch Alarm ##########
+  CloudwatchAlarmName:
+    Type: String
+    Default: jenkins-monitoring-alarm
+  AlbName:
+    Type: String
+    Default: jenkins-monitoring
+  AlbArnSuffix:
+    Type: String # ex.0215ca17ea5c7e71
+    Default: 1986ca97ea7c7e73
+  TargetGroupName:
+    Type: String
+    Default: jenkins-monitoring
+  TargetGroupArnSuffix:
+    Type: String
+    Default: 433272a5e53c62fb # ex.532211a5h53c12ab
+  ########## SNS ##########
+  SnsTopicName:
+    Type: String
+    Default: jenkins-monitoring-sns
+  SnsSubEmail:
+    Type: String
+    Default: "dummy@example.com"
+  ########## Lambda ##########
+  LambdaFunctionName:
+    Type: String
+    Default: jenkins-monitoring-lambda
+  SlackHookUrl:
+    Type: String
+    Default: "https://hooks.slack.com/services/YOUR/HOOKURL"
+  JenkinsInstanceId:
+    Type: String
+    Default: YOUR_INSTANCE_ID # i-0123456789
+  SlackChannelName:
+    Type: String
+    Default: "YOUR_CHANNEL_NAME"
+  LambdaIamRoleName:
+    Type: String
+    Default: jenkins-monitoring-lambda-role
+  LambdaIamPolicyName:
+    Type: String
+    Default: jenkins-monitoring-lambda-policy
+  ########## Chatbot ##########
+  ChatbotConfigName:
+    Type: String
+    Default: jenkins-monitoring-chatbot
+  ChatbotIamRoleName:
+    Type: String
+    Default: jenkins-monitoring-chatbot-role
+  ChatbotIamPolicyName:
+    Type: String
+    Default: jenkins-monitoring-chatbot-policy
+  SlackWorkspaceId:
+    Type: String
+    Default: # ex.MAXOPW2NJC
+  SlackChannelId:
+    Type: String
+    Default: # ex.C024WA7ASSNEGB
+
+Resources:
+  ########## SNS ##########
+  SNSTopic:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      DisplayName: !Ref SnsTopicName
+      TopicName: !Ref SnsTopicName
+  SNSTopicPolicy:
+    Type: "AWS::SNS::TopicPolicy"
+    Properties:
+      PolicyDocument: !Sub '{"Version":"2008-10-17","Id":"__default_policy_ID","Statement":[{"Sid":"__default_statement_ID","Effect":"Allow","Principal":{"AWS":"*"},"Action":["SNS:GetTopicAttributes","SNS:SetTopicAttributes","SNS:AddPermission","SNS:RemovePermission","SNS:DeleteTopic","SNS:Subscribe","SNS:ListSubscriptionsByTopic","SNS:Publish","SNS:Receive"],"Resource":"${SNSTopic}","Condition":{"StringEquals":{"AWS:SourceOwner":"${AWS::AccountId}"}}}]}'
+      Topics:
+        - !Ref SNSTopic
+  SNSSubscription:
+    Type: "AWS::SNS::Subscription"
+    Properties:
+      TopicArn: !Ref SNSTopic
+      Endpoint: !Ref SnsSubEmail
+      Protocol: "email"
+      Region: !Ref AWS::Region
+  SNSSubscription2:
+    Type: "AWS::SNS::Subscription"
+    Properties:
+      TopicArn: !Ref SNSTopic
+      Endpoint: !GetAtt LambdaFunction.Arn
+      Protocol: "lambda"
+      Region: !Ref AWS::Region
+  SNSSubscription3:
+    Type: "AWS::SNS::Subscription"
+    Properties:
+      TopicArn: !Ref SNSTopic
+      Endpoint: "https://global.sns-api.chatbot.amazonaws.com"
+      Protocol: "https"
+      RawMessageDelivery: "false"
+      Region: !Ref AWS::Region
+  ########## Cloudwatch Alarm ##########
+  CloudWatchAlarm:
+    Type: "AWS::CloudWatch::Alarm"
+    Properties:
+      AlarmName: !Ref CloudwatchAlarmName
+      ActionsEnabled: true
+      AlarmActions:
+        - !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:${SnsTopicName}"
+      MetricName: "HealthyHostCount"
+      Namespace: "AWS/ApplicationELB"
+      Statistic: "Average"
+      Dimensions:
+        - Name: "TargetGroup"
+          Value: !Sub "targetgroup/${TargetGroupName}/${TargetGroupArnSuffix}"
+        - Name: "LoadBalancer"
+          Value: !Sub "app/${AlbName}/${AlbArnSuffix}"
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 1
+      ComparisonOperator: "LessThanThreshold"
+      TreatMissingData: "missing"
+  ########## Lambda ##########
+  LambdaIamRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      Path: "/service-role/"
+      RoleName: !Ref LambdaIamRoleName
+      AssumeRolePolicyDocument: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["lambda.amazonaws.com"]},"Action":"sts:AssumeRole"}]}'
+      MaxSessionDuration: 3600
+      Policies:
+        - PolicyName: !Ref LambdaIamPolicyName
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                  - logs:PutLogEvents
+                Resource:
+                  - "arn:aws:logs:*:*:*"
+              - Effect: Allow
+                Action:
+                  - ec2:RebootInstances
+                Resource:
+                  - "*"
+                Condition:
+                  StringEquals:
+                    ec2:ResourceTag/MonitoringTarget:
+                      - "jenkins"
+  LambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "An Amazon SNS trigger that sends CloudWatch alarm notifications to Slack."
+      Environment:
+        Variables:
+          jenkinsInstanceId: !Ref JenkinsInstanceId
+          slackHookUrl: !Ref SlackHookUrl
+          slackChannel: !Ref SlackChannelName
+      FunctionName: !Ref LambdaFunctionName
+      Handler: !Sub "index.lambda_handler"
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import logging
+          import os
+
+          from base64 import b64decode
+          from urllib.request import Request, urlopen
+          from urllib.error import URLError, HTTPError
+
+          SLACK_HOOK_URL = os.environ['slackHookUrl']
+          SLACK_CHANNEL = os.environ['slackChannel']
+          JENKINS_INSTANCE_ID = os.environ['jenkinsInstanceId']
+
+          ec2 = boto3.client('ec2')
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+
+          def lambda_handler(event, context):
+            # ロギング
+            logger.info("Event: " + str(event))
+            message = json.loads(event['Records'][0]['Sns']['Message'])
+            logger.info("Message: " + str(message))
+
+            # EC2再起動 インスタンスタグがMonitoringTarget : jenkinsであるもののみ再起動可能なようにIAMポリシーで制限している
+            # 一致するタグが無い場合、UnauthorizedOperationエラーが発生し再起動がfailする
+            reboot_result_message = '';
+            try:
+              response = ec2.reboot_instances(
+                InstanceIds=[
+                  JENKINS_INSTANCE_ID,
+                ]
+              )
+              reboot_result_message = "成功しました。"
+            except Exception as e:
+              reboot_result_message = "失敗しました。\n"\
+                                      "再起動対象のjenkinsインスタンスタグにMonitoringTarget : jenkinsが設定されていることを確認してください。\n"\
+                                      "再起動対象のjenkinsインスタンスIDがLambda関数名 : {0} の環境変数名 : jenkinsInstanceId と一致していることを確認してください。\n"\
+                                      "もしくはLambda関数名 : {0} のCloudwatchLogsを確認しエラー内容を確認、修正してください。".format(context.function_name)
+
+            alarm_name = message['AlarmName']
+            new_state = message['NewStateValue']
+            slack_message = {
+              'channel': SLACK_CHANNEL,
+              'text': "JenkinsサーバのヘルスチェックがUnHealthyのためCloudwatchAlarm : {0} が {1} 状態になりました。\n"\
+                      "対処としてサーバを再起動を実行。\n"\
+                      "再起動が{2}".format(alarm_name, new_state, reboot_result_message)
+            }
+            req = Request(SLACK_HOOK_URL, json.dumps(slack_message).encode('utf-8'))
+
+            # slackへメッセージ送信
+            try:
+              response = urlopen(req)
+              response.read()
+              logger.info("Message posted to %s", slack_message['channel'])
+            except HTTPError as e:
+              logger.error("Request failed: %d %s", e.code, e.reason)
+            except URLError as e:
+              logger.error("Server connection failed: %s", e.reason)
+      MemorySize: 128
+      Role: !GetAtt LambdaIamRole.Arn
+      Runtime: "python3.7"
+      Timeout: 5
+      TracingConfig:
+        Mode: "PassThrough"
+  LambdaPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Principal: "sns.amazonaws.com"
+      SourceArn: !Ref SNSTopic
+  ########## Chatbot ##########
+  ChatbotIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref ChatbotIamRoleName
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: chatbot.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Ref ChatbotIamPolicyName
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:Describe*
+                  - cloudwatch:Get*
+                  - cloudwatch:List*
+                Resource:
+                  - "*"
+  Chatbot:
+    Type: AWS::Chatbot::SlackChannelConfiguration
+    Properties:
+      ConfigurationName: !Ref ChatbotConfigName
+      IamRoleArn: !GetAtt ChatbotIamRole.Arn
+      LoggingLevel: INFO
+      SlackChannelId: !Ref SlackChannelId
+      SlackWorkspaceId: !Ref SlackWorkspaceId
+      SnsTopicArns:
+        - !Ref SNSTopic
