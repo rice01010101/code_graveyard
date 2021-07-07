@@ -1,0 +1,22 @@
+version: "3"
+services:
+  webapp:
+    build: ./01-webapp
+    image: webapp
+    ports:
+      - "80:80"
+    tty: true
+#    volumes:
+#      - "./01-webapp/config:/etc/"
+  database:
+    build: ./02-database
+    environment:
+      - MYSQL_ROOT_PASSWORD=password
+      - MYSQL_DATABASE=concrete5
+      - MYSQL_USER=concrete5
+      - MYSQL_PASSWORD=concrete5
+    image: database
+    ports:
+      - "3306:3306"
+    volumes:
+      - "./02-database/data:/var/lib/mysql"

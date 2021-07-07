@@ -1,0 +1,15 @@
+https-portal:
+  image: steveltn/https-portal:1
+  ports:
+    - '80:80'
+    - '443:443'
+  links:
+    - wordpress
+  restart: always
+  environment:
+    DOMAINS: 'blog.ricein.com -> http://wordpress:80'
+    # STAGE: 'production' # Don't use production until staging works
+    # FORCE_RENEW: 'true'
+
+wordpress:
+  image: wordpress

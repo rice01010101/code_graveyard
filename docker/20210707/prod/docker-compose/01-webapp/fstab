@@ -1,0 +1,3 @@
+#
+LABEL=/     /           auto    defaults,noatime  1   1
+/root/go/bin/goofys#prod-blogriceincom /usr/share/nginx/html/concrete5853/s3 fuse _netdev,allow_other,--file-mode=0666,--uid=999,--gid=998 0 0
