@@ -1,0 +1,139 @@
+schemaVersion: '0.3'
+description: ゴールデンイメージ用インスタンスのAMI作成からASGデプロイまでを自動化するためのランブック
+assumeRole: arn:aws:iam::YOUR_AWS_ACCOUNT_ID:role/YOUR_ROLE_NAME
+variables:
+  instanceID:
+    type: String
+    default: YOUR_INSTANCE_ID
+    description: AMI creation source instance ID
+  launchTemplateID:
+    type: String
+    default: YOUR_LAUNCH_TEMPLATE_ID
+    description: Existing launch template to update
+  autoScalingGroupName:
+    type: String
+    default: YOUR_ASG_GROUP_NAME
+    description: ASG name to update
+  noDeleteImageMessage:
+    type: String
+    default: nothing
+    description: nothing or AMI ID to delete
+  maxImageCount:
+    type: Integer
+    default: 3
+    description: Maximum number of AMIs to retain for this Automation process
+  managedAMITagKey:
+    type: String
+    default: IsSSMAutomationCreate
+    description: AMI tag key managed by this Automation process
+  AMIName:
+    type: String
+    description: AMI name tag value
+    default: YOUR_AMI_NAME
+mainSteps:
+  - name: CreateAMI
+    action: aws:createImage
+    nextStep: CreateTags
+    isEnd: false
+    inputs:
+      InstanceId: '{{ variable:instanceID }}'
+      ImageName: YOUR_IMAGE_NAME-{{ global:DATE_TIME }}
+      NoReboot: true
+  - name: CreateTags
+    action: aws:createTags
+    nextStep: CreateLaunchTemplateVersion
+    isEnd: false
+    inputs:
+      ResourceIds:
+        - '{{ CreateAMI.ImageId }}'
+      Tags:
+        - Key: '{{ variable:managedAMITagKey }}'
+          Value: true
+        - Key: Name
+          Value: '{{ variable:AMIName }}'
+  - name: CreateLaunchTemplateVersion
+    action: aws:executeAwsApi
+    nextStep: StartInstanceRefresh
+    isEnd: false
+    inputs:
+      Service: ec2
+      Api: CreateLaunchTemplateVersion
+      LaunchTemplateId: '{{ variable:launchTemplateID }}'
+      LaunchTemplateData:
+        ImageId: '{{ CreateAMI.ImageId }}'
+      SourceVersion: $Latest
+  - name: StartInstanceRefresh
+    action: aws:executeAwsApi
+    nextStep: WaitOnAWSResourceProperty
+    isEnd: false
+    inputs:
+      Service: autoscaling
+      Api: StartInstanceRefresh
+      AutoScalingGroupName: '{{ variable:autoScalingGroupName }}'
+      DesiredConfiguration:
+        LaunchTemplate:
+          LaunchTemplateId: '{{ variable:launchTemplateID }}'
+          Version: $Latest
+      Preferences:
+        ScaleInProtectedInstances: Ignore
+        SkipMatching: true
+        StandbyInstances: Ignore
+        InstanceWarmup: 120
+    outputs:
+      - Type: String
+        Name: InstanceRefreshId
+        Selector: $.InstanceRefreshId
+  - name: WaitOnAWSResourceProperty
+    action: aws:waitForAwsResourceProperty
+    timeoutSeconds: 1200
+    nextStep: RunScript_ListImage
+    isEnd: false
+    inputs:
+      Service: autoscaling
+      Api: DescribeInstanceRefreshes
+      AutoScalingGroupName: '{{ variable:autoScalingGroupName }}'
+      InstanceRefreshIds:
+        - '{{ StartInstanceRefresh.InstanceRefreshId }}'
+      PropertySelector: $.InstanceRefreshes[0].Status
+      DesiredValues:
+        - Successful
+  - name: RunScript_ListImage
+    action: aws:executeScript
+    nextStep: Branch
+    isEnd: false
+    inputs:
+      Runtime: python3.11
+      Handler: script_handler
+      Script: "def script_handler(events, context):\n  import boto3\n\n  ec2 = boto3.client('ec2')\n\n  amis = ec2.describe_images(\n    Owners=['self'],\n  \tFilters=[\n      {\n        'Name': 'tag:' + events['managedAMITagKey'],\n        'Values': ['true']\n      },\n    ],\n  )\n  sorted_amis = sorted(amis['Images'], key=lambda ami: ami['CreationDate'])\n  print(sorted_amis)\n  \n  if len(sorted_amis) > events['maxImageCount']:\n    return({'delete_image_id' : sorted_amis[0]['ImageId']})\n  else:\n    return({'delete_image_id' : events['noDeleteImageMessage']})\n"
+      InputPayload:
+        noDeleteImageMessage: '{{ variable:noDeleteImageMessage }}'
+        maxImageCount: '{{ variable:maxImageCount }}'
+        managedAMITagKey: '{{ variable:managedAMITagKey }}'
+    outputs:
+      - Type: String
+        Name: delete_image_id
+        Selector: $.Payload.delete_image_id
+  - name: Branch
+    action: aws:branch
+    inputs:
+      Choices:
+        - NextStep: DeleteAMI
+          Not:
+            Variable: '{{ RunScript_ListImage.delete_image_id }}'
+            StringEquals: '{{ variable:noDeleteImageMessage }}'
+      Default: RunScript_DoneMessage
+  - name: DeleteAMI
+    action: aws:deleteImage
+    nextStep: RunScript_DoneMessage
+    isEnd: false
+    inputs:
+      ImageId: '{{ RunScript_ListImage.delete_image_id }}'
+  - name: RunScript_DoneMessage
+    action: aws:executeScript
+    isEnd: true
+    inputs:
+      Runtime: python3.11
+      Handler: script_handler
+      Script: |-
+        def script_handler(events, context):
+          print('done');
